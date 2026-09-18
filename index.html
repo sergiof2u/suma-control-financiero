@@ -658,6 +658,7 @@ window.saveExpense=async()=>{
 
 window.editRecord=rid=>{
   const r=records.find(x=>x.id===rid);if(!r)return;
+  if(r.linea){alert("Este registro es del TALLER de joyeria (linea "+r.linea+").\n\nSe edita desde la app del taller:\nsergiof2u.github.io/suma-taller\n\nEditarlo desde aqui borraria su linea, su destino y su unidad.");return;}
   editingId=r.id;
   $("editNotice").innerHTML=`<div class="edit-notice">✏ Editando ${r.type==="income"?"ingreso":"egreso"}. Modifica y presiona Guardar.</div>`;
   const att=Array.isArray(r.attachments)?r.attachments.map(a=>({url:a.url,path:a.path,name:a.name||""})):[];
@@ -682,8 +683,9 @@ window.editRecord=rid=>{
 };
 
 window.deleteRecord=async rid=>{
-  if(!confirm("¿Eliminar este registro? Se borrarán también sus comprobantes. No se puede deshacer."))return;
   const r=records.find(x=>x.id===rid);
+  if(r&&r.linea&&!confirm("AVISO: este registro es del TALLER de joyeria (linea "+r.linea+").\nSi lo borras desde aqui, el movimiento de material queda huerfano.\n\n¿Borrar de todos modos?"))return;
+  if(!confirm("¿Eliminar este registro? Se borrarán también sus comprobantes. No se puede deshacer."))return;
   try{
     if(r&&Array.isArray(r.attachments))await deleteAttachmentsFromStorage(r.attachments);
     await deleteDoc(doc(db,"records",rid));toast("Registro eliminado");
