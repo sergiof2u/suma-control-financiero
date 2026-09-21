@@ -245,7 +245,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:'DM Sans',sans-s
       <div class="field"><label>Cantidad</label><input id="i_quantity" inputmode="numeric" placeholder="1"></div>
       <div class="field"><label>Monto unitario</label><input id="i_amount" inputmode="numeric" placeholder="0"></div>
     </div>
-    <div class="field"><label>Fuente de ingreso</label><select id="i_source" onchange="refreshAmbito('i')"></select></div>
+    <div class="field"><label>Fuente de ingreso</label><select id="i_source" onchange="sourceChanged()"></select></div>
     <div class="field"><label>Forma de ingreso</label><select id="i_method"></select></div>
     <div class="field"><label>Estado del cobro</label>
       <div class="status-toggle">
@@ -422,7 +422,7 @@ const app=initializeApp(firebaseConfig),db=getFirestore(app),auth=getAuth(app),s
 
 const DEF_SOURCES=["Venta","Productos","Talleres","Servicio","Artesanía","Clase","Evento","Comisión","Reembolso","Otro"];
 const DEF_CATS=["Inventario","Arriendo","Servicios","Transporte","Marketing","Impuestos","Nómina","Herramientas","Evento","Doméstico","Otro"];
-const METHODS=["Efectivo","Transferencia","Tarjeta","Nequi","Daviplata","Pasarela","Cheque","Otro"];
+const METHODS=["Efectivo","Transferencia","Tarjeta","Nequi","Daviplata","Pasarela","Cheque","QR del concesionario","Otro"];
 const MONTHS_ES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
 let records=[],settings={incomeSources:[...DEF_SOURCES],expenseCats:[...DEF_CATS],ambitos:["Suma","Destilería","Familiar","Mixto"]};
@@ -521,12 +521,17 @@ window.setType=type=>{
 
 /* El ámbito lo define la categoría: el grupo Familiar va a Familiar, El Abrazo y Destilería a los suyos,
    y todo lo demás a Suma. Una categoría vieja sin grupo conserva el ámbito que ya tenía el registro. */
-const AMBITO_GRUPO={"Familiar":"Familiar","El Abrazo":"El Abrazo","Destilería":"Destilería"};
+const AMBITO_GRUPO={"Familiar":"Familiar","El Abrazo":"El Abrazo","Destilería":"Destilería","Ventas de concesionarios":"Concesionarios"};
+/* Ventas de los concesionarios: las hace SUMA en el mostrador, pero el cliente le paga directo al QR del concesionario.
+   Se anotan para comparar lo que vende cada estante con su alquiler; no son plata de SUMA y quedan fuera de todas las cuentas. */
+const FUERA_DE_CUENTAS=["Concesionarios"];
+const cuenta=r=>!FUERA_DE_CUENTAS.includes(r.ambito);
 function ambitoFor(cat,actual){const g=splitCat(cat)[0];if(g===null)return actual||"Suma";return AMBITO_GRUPO[g]||"Suma";}
 window.selectAmbito=(prefix,value)=>{
   $(`${prefix}_ambito`).value=value;
-  $(`${prefix}_ambito_note`).textContent=value?`Se guarda en ${value}. Lo define la categoría.`:"";
+  $(`${prefix}_ambito_note`).textContent=FUERA_DE_CUENTAS.includes(value)?"Informativo: no entra a la contabilidad de SUMA. El dinero va directo al concesionario.":value?`Se guarda en ${value}. Lo define la categoría.`:"";
 };
+window.sourceChanged=()=>{refreshAmbito("i");if(FUERA_DE_CUENTAS.includes($("i_ambito").value))$("i_method").value="QR del concesionario";};
 window.refreshAmbito=prefix=>{const cat=prefix==="i"?$("i_source").value:$("e_category").value;selectAmbito(prefix,ambitoFor(cat,$(`${prefix}_ambito`).value));};
 // El filtro incluye los ámbitos de los registros viejos aunque ya no estén en la lista.
 const ambitosFiltro=()=>[...settings.ambitos,...[...new Set(records.map(r=>r.ambito).filter(Boolean))].filter(a=>!settings.ambitos.includes(a)).sort()];
@@ -798,21 +803,21 @@ window.render=()=>{
   fillSel("f_category",[...settings.expenseCats,...oldCats],true,true);
   fillSel("f_ambito",ambitosFiltro(),true);
   $("personList").innerHTML=[...new Set(records.map(r=>r.person).filter(Boolean))].sort().map(x=>`<option value="${esc(x)}">`).join("");
-  const rows=filteredRecords();
-  const income=rows.filter(r=>r.type==="income").reduce((s,r)=>s+Number(r.amount||0),0);
-  const expense=rows.filter(r=>r.type==="expense").reduce((s,r)=>s+Number(r.amount||0),0);
+  const rows=filteredRecords(),cuentas=rows.filter(cuenta);
+  const income=cuentas.filter(r=>r.type==="income").reduce((s,r)=>s+Number(r.amount||0),0);
+  const expense=cuentas.filter(r=>r.type==="expense").reduce((s,r)=>s+Number(r.amount||0),0);
   const bal=income-expense;
   // Caja real: solo registros pagados
-  const cajInc=rows.filter(r=>r.type==="income"&&(r.status||"Pagado")==="Pagado").reduce((s,r)=>s+Number(r.amount||0),0);
-  const cajExp=rows.filter(r=>r.type==="expense"&&(r.status||"Pagado")==="Pagado").reduce((s,r)=>s+Number(r.amount||0),0);
+  const cajInc=cuentas.filter(r=>r.type==="income"&&(r.status||"Pagado")==="Pagado").reduce((s,r)=>s+Number(r.amount||0),0);
+  const cajExp=cuentas.filter(r=>r.type==="expense"&&(r.status||"Pagado")==="Pagado").reduce((s,r)=>s+Number(r.amount||0),0);
   const caja=cajInc-cajExp;
   $("st_income").textContent=money(income);$("st_expense").textContent=money(expense);
   $("st_balance").textContent=money(bal);$("st_balance").style.color=bal>=0?"var(--green)":"var(--red)";
   $("st_caja").textContent=caja!==bal?`Caja real: ${money(caja)}`:"";
   $("st_count").textContent=rows.length;$("recordCount").textContent=`${rows.length} registros`;
   // Alerta de pendientes (sobre TODOS los registros, no solo los filtrados)
-  const pendInc=records.filter(r=>r.type==="income"&&(r.status||"Pagado")==="Pendiente").reduce((s,r)=>s+Number(r.amount||0),0);
-  const pendExp=records.filter(r=>r.type==="expense"&&(r.status||"Pagado")==="Pendiente").reduce((s,r)=>s+Number(r.amount||0),0);
+  const pendInc=records.filter(r=>cuenta(r)&&r.type==="income"&&(r.status||"Pagado")==="Pendiente").reduce((s,r)=>s+Number(r.amount||0),0);
+  const pendExp=records.filter(r=>cuenta(r)&&r.type==="expense"&&(r.status||"Pagado")==="Pendiente").reduce((s,r)=>s+Number(r.amount||0),0);
   const alertEl=$("pendingAlert"),alertTxt=$("pendingAlertText");
   if(pendInc>0||pendExp>0){
     const parts=[];
@@ -825,7 +830,7 @@ window.render=()=>{
     const auto=inferTags(r.description).filter(t=>!stored.includes(t));
     const ab=`<span class="badge" style="background:#f0ede8;color:#57534e">${esc(r.ambito||"—")}</span>`;
     const isPend=(r.status||"Pagado")==="Pendiente";
-    const pendBadge=isPend?`<span class="badge bpend">⏳ Pendiente</span>`:``;
+    const pendBadge=(isPend?`<span class="badge bpend">⏳ Pendiente</span>`:``)+(cuenta(r)?``:`<span class="badge bpend">Informativo</span>`);
     const atts=Array.isArray(r.attachments)?r.attachments:[];
     const thumbs=atts.length?`<div class="rec-clip">📎 ${atts.length} comprobante${atts.length>1?"s":""}</div><div class="rec-thumbs">${atts.map(a=>`<img src="${esc(a.url)}" onclick="openLightbox('${esc(a.url)}')">`).join("")}</div>`:"";
     return`<div class="rec"><div class="rec-top"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="badge ${r.type==="income"?"bin":"bout"}">${r.type==="income"?"Ingreso":"Egreso"}</span>${ab}${pendBadge}</div><b class="rec-amount" style="color:${r.type==="income"?"var(--green)":"var(--red)"}">${money(r.amount)}</b></div><div class="rec-meta">${esc(r.date)} · ${esc(r.type==="income"?(r.source||""):(r.category||""))} · ${esc(r.method||"")}</div>${r.type==="income"&&r.quantity>1?`<div class="rec-meta">${r.quantity} × ${money(r.unitAmount)}</div>`:""}${r.person?`<div class="rec-meta">👤 ${esc(r.person)}</div>`:""}${r.supplier?`<div class="rec-meta">🏢 ${esc(r.supplier)}</div>`:""}${r.description?`<div class="rec-desc">${esc(r.description)}</div>`:""}${stored.length||auto.length?`<div>${stored.map(t=>`<span class="tag">${esc(t)}</span>`).join("")}${auto.map(t=>`<span class="tag tag-auto">${esc(t)}</span>`).join("")}</div>`:""}${thumbs}<div class="rec-actions"><button class="btn btn-light btn-sm" onclick="editRecord('${r.id}')">Editar</button><button class="btn btn-sm" style="background:var(--red-bg);color:var(--red)" onclick="deleteRecord('${r.id}')">Eliminar</button></div></div>`;
@@ -835,7 +840,7 @@ window.render=()=>{
 
 function renderMonthly(){
   const obj={};
-  records.forEach(r=>{if(!r.date)return;const k=r.date.slice(0,7);obj[k]??={income:0,expense:0,count:0};if(r.type==="income")obj[k].income+=Number(r.amount||0);if(r.type==="expense")obj[k].expense+=Number(r.amount||0);obj[k].count++;});
+  records.forEach(r=>{if(!r.date||!cuenta(r))return;const k=r.date.slice(0,7);obj[k]??={income:0,expense:0,count:0};if(r.type==="income")obj[k].income+=Number(r.amount||0);if(r.type==="expense")obj[k].expense+=Number(r.amount||0);obj[k].count++;});
   const sorted=Object.entries(obj).sort((a,b)=>b[0].localeCompare(a[0]));
   $("monthlyBody").innerHTML=sorted.length?sorted.map(([k,d])=>{const[y,m]=k.split("-");const bal=d.income-d.expense;return`<tr><td><b>${MONTHS_ES[Number(m)-1]} ${y}</b></td><td style="color:var(--green)">${money(d.income)}</td><td style="color:var(--red)">${money(d.expense)}</td><td style="color:${bal>=0?"var(--green)":"var(--red)"};font-weight:700">${money(bal)}</td><td style="color:var(--muted)">${d.count}</td></tr>`;}).join(""):`<tr><td colspan="5" style="color:var(--muted);padding:20px">Sin registros todavía.</td></tr>`;
 }
@@ -862,7 +867,7 @@ function renderReports(rows){
   $("ambitoReport").innerHTML=repBlock(agg(rows,r=>r.ambito||"Suma",sig));
   // Reporte por artesano: vendido (ingresos) y pagado (egresos) por separado
   const pers={};
-  rows.forEach(r=>{if(!r.person)return;pers[r.person]??={vendido:0,pagado:0};if(r.type==="income")pers[r.person].vendido+=Number(r.amount||0);else pers[r.person].pagado+=Number(r.amount||0);});
+  rows.forEach(r=>{if(!r.person||!cuenta(r))return;pers[r.person]??={vendido:0,pagado:0};if(r.type==="income")pers[r.person].vendido+=Number(r.amount||0);else pers[r.person].pagado+=Number(r.amount||0);});
   const personas=Object.entries(pers).sort((a,b)=>(b[1].vendido+b[1].pagado)-(a[1].vendido+a[1].pagado));
   $("personReport").innerHTML=personas.length?`<div class="rep-block">`+personas.map(([nombre,d])=>{
     const dif=d.vendido-d.pagado;
@@ -875,7 +880,7 @@ function renderReports(rows){
 
 function renderConsignacion(rows){
   // Solo ingresos con artesano
-  const ventas=rows.filter(r=>r.type==="income"&&r.person);
+  const ventas=rows.filter(r=>r.type==="income"&&r.person&&cuenta(r));
   if(!ventas.length){
     $("consignacionResumen").innerHTML=`<div class="rep-block"><div class="rep-row" style="color:var(--muted)">Sin ventas con artesano en el período.</div></div>`;
     $("consignacionDetalle").innerHTML="";return;
