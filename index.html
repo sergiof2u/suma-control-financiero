@@ -63,6 +63,11 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:'DM Sans',sans-s
 .status-btn{flex:1;padding:10px;border:none;font-weight:700;font-size:13px;cursor:pointer;background:transparent;color:var(--muted);transition:all .15s;font-family:'DM Sans',sans-serif}
 .status-btn.active-paid{background:#166534;color:white}
 .status-btn.active-pend{background:#92400e;color:white}
+.status-btn.active-payee{background:#44403c;color:white}
+.payee-note{font-size:12px;color:var(--muted);margin:6px 0 0}
+.rep-row.rep-group{font-weight:700;background:#f7f5f1}
+.rep-row.rep-sub{padding-left:28px}
+.cat-group-title{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:12px 0 0}
 /* alerta de pendientes */
 .pending-alert{display:none;background:var(--gold-bg);border:1.5px solid #fcd34d;border-radius:13px;padding:11px 15px;margin-bottom:14px;font-size:13px;color:var(--gold);font-weight:700;gap:10px;flex-wrap:wrap;align-items:center}
 .pending-alert.show{display:flex}
@@ -271,7 +276,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:'DM Sans',sans-s
   <div id="expenseForm" style="display:none">
     <div class="field"><label>Fecha</label><input id="e_date" type="date"></div>
     <div class="field"><label>Monto</label><input id="e_amount" inputmode="numeric" placeholder="0"></div>
-    <div class="field"><label>Categoría del egreso</label><select id="e_category"></select></div>
+    <div class="field"><label>Categoría del egreso</label><select id="e_category" onchange="categoryChanged()"></select></div>
     <div class="field"><label>Forma de pago</label><select id="e_method"></select></div>
     <div class="field"><label>Estado del pago</label>
       <div class="status-toggle">
@@ -280,8 +285,16 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:'DM Sans',sans-s
       </div>
       <input type="hidden" id="e_status" value="Pagado">
     </div>
-    <div class="field"><label>Artesano o artista (consignación)</label><input id="e_person" placeholder="Nombre (si es pago a artesano)" list="personSuggest" autocomplete="off"></div>
-    <div class="field"><label>Proveedor</label><input id="e_supplier" placeholder="Proveedor, contratista"></div>
+    <div class="field"><label>¿A quién se le paga?</label>
+      <div class="status-toggle">
+        <button class="status-btn" id="e_payee_art" onclick="setPayee('artesano')">Artesano o artista</button>
+        <button class="status-btn" id="e_payee_prov" onclick="setPayee('proveedor')">Proveedor</button>
+      </div>
+      <input type="hidden" id="e_payee" value="">
+      <p class="payee-note" id="e_payee_note">Artesano: quien deja producto para vender, dicta una clase o alquila un estante. Proveedor: servicios e insumos para usar en SUMA.</p>
+    </div>
+    <div class="field" id="e_person_field" style="display:none"><label>Artesano o artista</label><input id="e_person" placeholder="Nombre del artesano o artista" list="personSuggest" autocomplete="off"></div>
+    <div class="field" id="e_supplier_field" style="display:none"><label>Proveedor</label><input id="e_supplier" placeholder="Proveedor, contratista" list="supplierSuggest" autocomplete="off"><datalist id="supplierSuggest"></datalist></div>
     <div class="field"><label>Ámbito</label>
       <div class="ambito-pills" id="e_ambito_pills"></div>
       <input type="hidden" id="e_ambito" value="">
@@ -354,6 +367,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:'DM Sans',sans-s
 
 <div class="panel" id="panel-config">
   <div class="card">
+    <p style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:10px">Para agrupar, escribe <b>Grupo / Detalle</b>, por ejemplo <b>Clase / Yoga</b>. En los formularios aparece como desplegable agrupado y en los reportes con subtotal por grupo. Quitar una opción de la lista no cambia los registros que ya la usan.</p>
     <p class="sec-title">Fuentes de ingreso</p>
     <div class="cat-list" id="incomeSourcesList"></div>
     <div style="display:flex;gap:8px;margin-top:8px">
@@ -421,6 +435,14 @@ const norm=v=>String(v||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u03
 const parseAmt=v=>String(v||"").replace(/\D/g,"");
 const fmtAmt=v=>{const d=parseAmt(v);return d?d.replace(/\B(?=(\d{3})+(?!\d))/g,"."):"";};
 const money=v=>{const n=Math.round(Number(v||0)),s=Math.abs(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g,".");return(n<0?"-":"")+"$ "+s;};
+
+/* Categorías agrupadas: se guardan como "Grupo · Detalle" (ej. "Clase · Yoga").
+   El texto completo es el valor del registro, así filtros, reportes y exportaciones siguen leyendo un solo campo. */
+const SEP=" · ";
+const splitCat=v=>{const s=String(v||""),i=s.indexOf(SEP);return i<0?[null,s]:[s.slice(0,i),s.slice(i+SEP.length)];};
+// En Config se puede escribir "Clase / Yoga" o "Clase > Yoga"; se guarda como "Clase · Yoga".
+const normCatInput=v=>String(v||"").split(/\s*[\/>·]\s*/).map(x=>x.trim()).filter(Boolean).join(SEP);
+const groupItems=items=>{const order=[],by={};items.forEach(x=>{const k=splitCat(x)[0]??"";if(!(k in by)){by[k]=[];order.push(k);}by[k].push(x);});return order.map(g=>[g,by[g]]);};
 
 function inferTags(t){
   const v=norm(t);
@@ -504,7 +526,7 @@ window.selectAmbito=(prefix,value)=>{
 
 window.addCategory=async type=>{
   const iid=type==="incomeSource"?"newIncomeSource":"newExpenseCat";
-  const val=$(iid).value.trim();if(!val)return;
+  const val=normCatInput($(iid).value);if(!val)return;
   if(type==="incomeSource"){if(!settings.incomeSources.includes(val))settings.incomeSources.push(val);}
   else{if(!settings.expenseCats.includes(val))settings.expenseCats.push(val);}
   $(iid).value="";await saveSettings();toast("✓ Categoría guardada");
@@ -517,12 +539,51 @@ window.removeCategory=async(type,val)=>{
   await saveSettings();toast("Categoría eliminada");
 };
 
-function fillSel(id,items,withAll=false){const el=$(id),old=el.value;el.innerHTML=withAll?'<option value="all">Todos</option>':'<option value="">Seleccionar</option>';items.forEach(x=>el.insertAdjacentHTML("beforeend",`<option value="${esc(x)}">${esc(x)}</option>`));if([...el.options].some(o=>o.value===old))el.value=old;}
-function refreshCategorySelects(){fillSel("i_source",settings.incomeSources);fillSel("e_category",settings.expenseCats);}
-function renderConfigCats(){
-  $("incomeSourcesList").innerHTML=settings.incomeSources.map(c=>`<span class="cat-chip">${esc(c)}<button onclick="removeCategory('incomeSource','${esc(c)}')">×</button></span>`).join("");
-  $("expenseCatsList").innerHTML=settings.expenseCats.map(c=>`<span class="cat-chip">${esc(c)}<button onclick="removeCategory('expenseCat','${esc(c)}')">×</button></span>`).join("");
+// Llena un <select>. Las opciones "Grupo · Detalle" van dentro de un <optgroup>.
+// groupAll agrega "Grupo (todas)" para filtrar por grupo completo.
+// En los formularios (sin withAll), si el valor actual ya no está en la lista se conserva como "(anterior)":
+// así, editar un registro viejo no lo convierte en "Otro".
+function fillSel(id,items,withAll=false,groupAll=false){
+  const el=$(id),old=el.value;
+  let h=withAll?'<option value="all">Todos</option>':'<option value="">Seleccionar</option>';
+  groupItems(items).forEach(([g,list])=>{
+    if(!g){list.forEach(x=>h+=`<option value="${esc(x)}">${esc(x)}</option>`);return;}
+    h+=`<optgroup label="${esc(g)}">`+(groupAll?`<option value="grp:${esc(g)}">${esc(g)} (todas)</option>`:"")+list.map(x=>`<option value="${esc(x)}">${esc(splitCat(x)[1])}</option>`).join("")+`</optgroup>`;
+  });
+  el.innerHTML=h;
+  if(!withAll&&old&&![...el.options].some(o=>o.value===old))el.options[0].insertAdjacentHTML("afterend",`<option value="${esc(old)}">${esc(old)} (anterior)</option>`);
+  if([...el.options].some(o=>o.value===old))el.value=old;
 }
+// Pone un valor en un <select> de formulario, conservándolo como "(anterior)" si ya no está en la lista.
+function setSel(id,v){const el=$(id);if(v&&![...el.options].some(o=>o.value===v))el.options[0].insertAdjacentHTML("afterend",`<option value="${esc(v)}">${esc(v)} (anterior)</option>`);el.value=v||"";}
+function refreshCategorySelects(){fillSel("i_source",settings.incomeSources);fillSel("e_category",settings.expenseCats);}
+function catChips(list,type){
+  return groupItems(list).map(([g,items])=>(g?`<div class="cat-group-title" style="width:100%">${esc(g)}</div>`:"")+items.map(c=>`<span class="cat-chip">${esc(g?splitCat(c)[1]:c)}<button onclick="removeCategory('${type}','${esc(c)}')">×</button></span>`).join("")).join("");
+}
+function renderConfigCats(){
+  $("incomeSourcesList").innerHTML=catChips(settings.incomeSources,"incomeSource");
+  $("expenseCatsList").innerHTML=catChips(settings.expenseCats,"expenseCat");
+}
+
+/* ¿A quién se le paga? En un egreso va el artesano o el proveedor, no los dos.
+   "ambos" solo aparece al editar un registro viejo que trae los dos nombres. */
+const PAYEE_NOTE="Artesano: quien deja producto para vender, dicta una clase o alquila un estante. Proveedor: servicios e insumos para usar en SUMA.";
+window.setPayee=p=>{
+  $("e_payee").value=p;
+  const art=p==="artesano"||p==="ambos",prov=p==="proveedor"||p==="ambos";
+  $("e_payee_art").className="status-btn"+(art?" active-payee":"");
+  $("e_payee_prov").className="status-btn"+(prov?" active-payee":"");
+  $("e_person_field").style.display=art?"block":"none";
+  $("e_supplier_field").style.display=prov?"block":"none";
+  $("e_payee_note").textContent=p==="ambos"?"Este registro tiene los dos nombres. Toca Artesano o Proveedor para dejar solo el que corresponde.":PAYEE_NOTE;
+};
+// Al elegir categoría, propone a quién se le paga si todavía no hay nombre escrito.
+const PAYEE_FREE=["Socios","Movimiento"];
+window.categoryChanged=()=>{
+  if($("e_person").value.trim()||$("e_supplier").value.trim())return;
+  const g=splitCat($("e_category").value)[0];
+  if(g==="Artesanos")setPayee("artesano");else if(g&&!PAYEE_FREE.includes(g))setPayee("proveedor");
+};
 function renderAmbitoPills(){
   ["i","e"].forEach(p=>{
     const cur=$(`${p}_ambito`).value;
@@ -542,7 +603,10 @@ window.removeAmbito=async val=>{
   settings.ambitos=settings.ambitos.filter(x=>x!==val);
   await saveSettings();toast("Ámbito eliminado");
 };
-function refreshPersonList(){$("personSuggest").innerHTML=[...new Set(records.map(r=>r.person).filter(Boolean))].sort().map(x=>`<option value="${esc(x)}">`).join("");}
+function refreshPersonList(){
+  $("personSuggest").innerHTML=[...new Set(records.map(r=>r.person).filter(Boolean))].sort().map(x=>`<option value="${esc(x)}">`).join("");
+  $("supplierSuggest").innerHTML=[...new Set(records.map(r=>String(r.supplier||"").trim()).filter(Boolean))].sort().map(x=>`<option value="${esc(x)}">`).join("");
+}
 
 /* ===================== ADJUNTOS ===================== */
 // Comprime una imagen a máx 1500px lado mayor; baja calidad si excede ~900KB.
@@ -652,7 +716,11 @@ window.saveExpense=async()=>{
   if(stillUploading("e")){toast("⏳ Espera a que terminen de subir las fotos");return;}
   const amt=Number(parseAmt($("e_amount").value));
   if(!$("e_date").value||amt<=0){alert("Ingresa fecha y monto.");return;}
-  const rec={type:"expense",date:$("e_date").value,quantity:1,amount:amt,category:$("e_category").value||"Otro",supplier:$("e_supplier").value,method:$("e_method").value||"Efectivo",status:$("e_status").value||"Pagado",ambito:$("e_ambito").value||"Suma",source:"",person:$("e_person").value,description:$("e_description").value,tags:$("e_tags").value||inferTags($("e_description").value).join(", "),attachments:attachClean("e"),updatedAt:new Date().toISOString()};
+  const payee=$("e_payee").value,cat=$("e_category").value||"Otro";
+  let person=$("e_person").value.trim(),supplier=$("e_supplier").value.trim();
+  if(payee==="artesano")supplier="";else if(payee==="proveedor")person="";
+  if(!person&&!supplier&&!PAYEE_FREE.includes(splitCat(cat)[0])&&!confirm("Falta a quién se le pagó (artesano o proveedor). ¿Guardar igual?"))return;
+  const rec={type:"expense",date:$("e_date").value,quantity:1,amount:amt,category:cat,supplier,method:$("e_method").value||"Efectivo",status:$("e_status").value||"Pagado",ambito:$("e_ambito").value||"Suma",source:"",person,description:$("e_description").value,tags:$("e_tags").value||inferTags($("e_description").value).join(", "),attachments:attachClean("e"),updatedAt:new Date().toISOString()};
   try{if(editingId){await setDoc(doc(db,"records",editingId),rec);toast("✓ Egreso actualizado");}else{await addDoc(collection(db,"records"),rec);toast("✓ Egreso guardado");}cancelEdit();}catch(e){toast("⚠ "+e.message);}
 };
 
@@ -665,15 +733,16 @@ window.editRecord=rid=>{
   if(r.type==="income"){
     setType("income");
     $("i_date").value=r.date||today;$("i_quantity").value=fmtAmt(r.quantity||1);$("i_amount").value=fmtAmt(r.unitAmount||0);
-    $("i_source").value=r.source||"";$("i_method").value=r.method||"Efectivo";$("i_person").value=r.person||"";
+    setSel("i_source",r.source||"");$("i_method").value=r.method||"Efectivo";$("i_person").value=r.person||"";
     setStatus("i",r.status||"Pagado");
     $("i_description").value=r.description||"";$("i_tags").value=r.tags||"";
     selectAmbito("i",r.ambito||"Suma");pendingAttach.i=att;renderThumbs("i");
     $("incomeBtn").textContent="Guardar ingreso";$("incomeCancel").style.display="block";
   }else{
     setType("expense");
-    $("e_date").value=r.date||today;$("e_amount").value=fmtAmt(r.amount);$("e_category").value=r.category||"";
+    $("e_date").value=r.date||today;$("e_amount").value=fmtAmt(r.amount);setSel("e_category",r.category||"");
     $("e_supplier").value=r.supplier||"";$("e_person").value=r.person||"";$("e_method").value=r.method||"Efectivo";
+    setPayee(r.person&&r.supplier?"ambos":r.person?"artesano":r.supplier?"proveedor":"");
     setStatus("e",r.status||"Pagado");
     $("e_description").value=r.description||"";$("e_tags").value=r.tags||"";
     selectAmbito("e",r.ambito||"Suma");pendingAttach.e=att;renderThumbs("e");
@@ -698,6 +767,7 @@ window.cancelEdit=()=>{
   $("i_date").value=today;$("e_date").value=today;$("i_quantity").value="1";
   $("i_source").value=settings.incomeSources[0]||"";$("i_method").value="Efectivo";setStatus("i","Pagado");
   $("e_category").value=settings.expenseCats[0]||"";$("e_method").value="Efectivo";setStatus("e","Pagado");
+  refreshCategorySelects();setPayee("");categoryChanged(); // quita las opciones "(anterior)" que dejó una edición
   selectAmbito("i",settings.ambitos[0]||"");selectAmbito("e",settings.ambitos[0]||"");
   pendingAttach.i=[];pendingAttach.e=[];renderThumbs("i");renderThumbs("e");
   $("incomeBtn").textContent="Agregar ingreso";$("expenseBtn").textContent="Agregar egreso";
@@ -711,7 +781,7 @@ function filteredRecords(){
   return records.filter(r=>{
     const s=norm(`${r.source} ${r.category} ${r.supplier} ${r.person} ${r.method} ${r.description} ${r.tags}`);
     const st=r.status||"Pagado";
-    return(!f.from||r.date>=f.from)&&(!f.to||r.date<=f.to)&&(f.type==="all"||r.type===f.type)&&(f.status==="all"||st===f.status)&&(f.ambito==="all"||r.ambito===f.ambito)&&(f.method==="all"||r.method===f.method)&&(f.category==="all"||r.category===f.category)&&(!f.person||norm(r.person||"").includes(norm(f.person)))&&(!f.supplier||norm(r.supplier||"").includes(norm(f.supplier)))&&(!f.text||s.includes(norm(f.text)));
+    return(!f.from||r.date>=f.from)&&(!f.to||r.date<=f.to)&&(f.type==="all"||r.type===f.type)&&(f.status==="all"||st===f.status)&&(f.ambito==="all"||r.ambito===f.ambito)&&(f.method==="all"||r.method===f.method)&&(f.category==="all"||(f.category.startsWith("grp:")?String(r.category||"").startsWith(f.category.slice(4)+SEP):r.category===f.category))&&(!f.person||norm(r.person||"").includes(norm(f.person)))&&(!f.supplier||norm(r.supplier||"").includes(norm(f.supplier)))&&(!f.text||s.includes(norm(f.text)));
   });
 }
 
@@ -719,7 +789,9 @@ window.clearFilters=()=>{["f_from","f_to","f_text","f_person","f_supplier"].forE
 
 window.render=()=>{
   fillSel("f_method",METHODS,true);
-  fillSel("f_category",settings.expenseCats,true);
+  // El filtro incluye también las categorías viejas que ya no están en la lista, para poder seguir consultándolas.
+  const oldCats=[...new Set(records.filter(r=>r.type==="expense"&&r.category&&!settings.expenseCats.includes(r.category)).map(r=>r.category))].sort();
+  fillSel("f_category",[...settings.expenseCats,...oldCats],true,true);
   fillSel("f_ambito",settings.ambitos,true);
   $("personList").innerHTML=[...new Set(records.map(r=>r.person).filter(Boolean))].sort().map(x=>`<option value="${esc(x)}">`).join("");
   const rows=filteredRecords();
@@ -765,6 +837,20 @@ function renderMonthly(){
 }
 
 function repBlock(items){if(!items.length)return`<div class="rep-block"><div class="rep-row" style="color:var(--muted)">Sin datos.</div></div>`;return`<div class="rep-block">`+items.map(([k,v])=>`<div class="rep-row"><span>${esc(k)}</span><b style="color:${v<0?"var(--red)":"var(--green)"}">${money(v)}</b></div>`).join("")+`</div>`;}
+// Igual que repBlock, pero las claves "Grupo · Detalle" salen bajo su grupo, con el subtotal del grupo.
+// Un valor viejo sin detalle que se llama igual que un grupo (ej. "Clase") entra a ese grupo como "(sin detalle)".
+function repGroupBlock(items){
+  if(!items.length)return repBlock(items);
+  const grupos=new Set(items.map(([k])=>splitCat(k)[0]).filter(g=>g!==null));
+  const G={},order=[];
+  items.forEach(([k,v])=>{let[g,d]=splitCat(k);if(g===null&&grupos.has(k)){g=k;d="(sin detalle)";}const key=g===null?"sin:"+k:"grp:"+g;if(!G[key]){G[key]={g,total:0,subs:[]};order.push(key);}G[key].total+=v;if(g!==null)G[key].subs.push([d,v]);});
+  order.sort((a,b)=>Math.abs(G[b].total)-Math.abs(G[a].total));
+  const val=v=>`<b style="color:${v<0?"var(--red)":"var(--green)"}">${money(v)}</b>`;
+  return`<div class="rep-block">`+order.map(key=>{const x=G[key];
+    if(x.g===null)return`<div class="rep-row"><span>${esc(key.slice(4))}</span>${val(x.total)}</div>`;
+    return`<div class="rep-row rep-group"><span>${esc(x.g)}</span>${val(x.total)}</div>`+x.subs.map(([d,v])=>`<div class="rep-row rep-sub"><span>${esc(d)}</span>${val(v)}</div>`).join("");
+  }).join("")+`</div>`;
+}
 
 function renderReports(rows){
   const agg=(arr,kf,vf)=>{const o={};arr.forEach(r=>{const k=kf(r);if(!k)return;o[k]=(o[k]||0)+vf(r);});return Object.entries(o).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]));};
@@ -778,8 +864,8 @@ function renderReports(rows){
     const dif=d.vendido-d.pagado;
     return`<div class="cons-row"><div class="cons-name">${esc(nombre)}</div><div class="cons-nums"><span>Vendido: <b style="color:var(--green)">${money(d.vendido)}</b></span><span>Pagado: <b style="color:var(--red)">${money(d.pagado)}</b></span><span class="cons-diff" style="color:${dif>=0?"var(--gold)":"var(--blue)"}">Dif: ${money(dif)}</span></div></div>`;
   }).join("")+`</div>`:`<div class="rep-block"><div class="rep-row" style="color:var(--muted)">Sin datos.</div></div>`;
-  $("sourceReport").innerHTML=repBlock(agg(rows.filter(r=>r.type==="income"),r=>r.source,r=>Number(r.amount||0)));
-  $("categoryReport").innerHTML=repBlock(agg(rows.filter(r=>r.type==="expense"),r=>r.category,r=>-Number(r.amount||0)));
+  $("sourceReport").innerHTML=repGroupBlock(agg(rows.filter(r=>r.type==="income"),r=>r.source,r=>Number(r.amount||0)));
+  $("categoryReport").innerHTML=repGroupBlock(agg(rows.filter(r=>r.type==="expense"),r=>r.category,r=>-Number(r.amount||0)));
   renderConsignacion(rows);
 }
 
