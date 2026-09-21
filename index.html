@@ -245,7 +245,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:'DM Sans',sans-s
       <div class="field"><label>Cantidad</label><input id="i_quantity" inputmode="numeric" placeholder="1"></div>
       <div class="field"><label>Monto unitario</label><input id="i_amount" inputmode="numeric" placeholder="0"></div>
     </div>
-    <div class="field"><label>Fuente de ingreso</label><select id="i_source"></select></div>
+    <div class="field"><label>Fuente de ingreso</label><select id="i_source" onchange="refreshAmbito('i')"></select></div>
     <div class="field"><label>Forma de ingreso</label><select id="i_method"></select></div>
     <div class="field"><label>Estado del cobro</label>
       <div class="status-toggle">
@@ -256,7 +256,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:'DM Sans',sans-s
     </div>
     <div class="field"><label>Artesano o artista</label><input id="i_person" placeholder="Nombre" list="personSuggest" autocomplete="off"><datalist id="personSuggest"></datalist></div>
     <div class="field"><label>Ámbito</label>
-      <div class="ambito-pills" id="i_ambito_pills"></div>
+      <p class="payee-note" id="i_ambito_note" style="margin:0"></p>
       <input type="hidden" id="i_ambito" value="">
     </div>
     <div class="field"><label>Descripción</label><textarea id="i_description" placeholder="Ej: venta de jabones, taller de cerámica..."></textarea></div>
@@ -296,7 +296,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:'DM Sans',sans-s
     <div class="field" id="e_person_field" style="display:none"><label>Artesano o artista</label><input id="e_person" placeholder="Nombre del artesano o artista" list="personSuggest" autocomplete="off"></div>
     <div class="field" id="e_supplier_field" style="display:none"><label>Proveedor</label><input id="e_supplier" placeholder="Proveedor, contratista" list="supplierSuggest" autocomplete="off"><datalist id="supplierSuggest"></datalist></div>
     <div class="field"><label>Ámbito</label>
-      <div class="ambito-pills" id="e_ambito_pills"></div>
+      <p class="payee-note" id="e_ambito_note" style="margin:0"></p>
       <input type="hidden" id="e_ambito" value="">
     </div>
     <div class="field"><label>Descripción</label><textarea id="e_description" placeholder="Ej: arriendo, transporte, insumos..."></textarea></div>
@@ -519,10 +519,17 @@ window.setType=type=>{
   $("typeExpense").className="type-btn"+(type==="expense"?" active":"")+" expense";
 };
 
+/* El ámbito lo define la categoría: el grupo Familiar va a Familiar, El Abrazo y Destilería a los suyos,
+   y todo lo demás a Suma. Una categoría vieja sin grupo conserva el ámbito que ya tenía el registro. */
+const AMBITO_GRUPO={"Familiar":"Familiar","El Abrazo":"El Abrazo","Destilería":"Destilería"};
+function ambitoFor(cat,actual){const g=splitCat(cat)[0];if(g===null)return actual||"Suma";return AMBITO_GRUPO[g]||"Suma";}
 window.selectAmbito=(prefix,value)=>{
-  document.querySelectorAll(`#${prefix}_ambito_pills .ambito-pill`).forEach(p=>{p.classList.toggle("sel",p.textContent===value);});
   $(`${prefix}_ambito`).value=value;
+  $(`${prefix}_ambito_note`).textContent=value?`Se guarda en ${value}. Lo define la categoría.`:"";
 };
+window.refreshAmbito=prefix=>{const cat=prefix==="i"?$("i_source").value:$("e_category").value;selectAmbito(prefix,ambitoFor(cat,$(`${prefix}_ambito`).value));};
+// El filtro incluye los ámbitos de los registros viejos aunque ya no estén en la lista.
+const ambitosFiltro=()=>[...settings.ambitos,...[...new Set(records.map(r=>r.ambito).filter(Boolean))].filter(a=>!settings.ambitos.includes(a)).sort()];
 
 window.addCategory=async type=>{
   const iid=type==="incomeSource"?"newIncomeSource":"newExpenseCat";
@@ -580,17 +587,14 @@ window.setPayee=p=>{
 // Al elegir categoría, propone a quién se le paga si todavía no hay nombre escrito.
 const PAYEE_FREE=["Socios","Movimiento"];
 window.categoryChanged=()=>{
+  refreshAmbito("e");
   if($("e_person").value.trim()||$("e_supplier").value.trim())return;
   const g=splitCat($("e_category").value)[0];
   if(g==="Artesanos")setPayee("artesano");else if(g&&!PAYEE_FREE.includes(g))setPayee("proveedor");
 };
 function renderAmbitoPills(){
-  ["i","e"].forEach(p=>{
-    const cur=$(`${p}_ambito`).value;
-    $(`${p}_ambito_pills`).innerHTML=settings.ambitos.map(a=>`<button class="ambito-pill${a===cur?" sel":""}" onclick="selectAmbito('${p}','${esc(a)}')">${esc(a)}</button>`).join("");
-    if(!cur&&settings.ambitos.length)selectAmbito(p,settings.ambitos[0]);
-  });
-  fillSel("f_ambito",settings.ambitos,true);
+  refreshAmbito("i");refreshAmbito("e");
+  fillSel("f_ambito",ambitosFiltro(),true);
   $("ambitosList").innerHTML=settings.ambitos.map(a=>`<span class="cat-chip">${esc(a)}<button onclick="removeAmbito('${esc(a)}')">×</button></span>`).join("");
 }
 window.addAmbito=async()=>{
@@ -708,7 +712,7 @@ window.saveIncome=async()=>{
   if(stillUploading("i")){toast("⏳ Espera a que terminen de subir las fotos");return;}
   const ua=Number(parseAmt($("i_amount").value)),qty=Number(parseAmt($("i_quantity").value)||1);
   if(!$("i_date").value||ua<=0){alert("Ingresa fecha y monto.");return;}
-  const rec={type:"income",date:$("i_date").value,quantity:qty,unitAmount:ua,amount:ua*qty,source:$("i_source").value||"Otro",method:$("i_method").value||"Efectivo",person:$("i_person").value,status:$("i_status").value||"Pagado",ambito:$("i_ambito").value||"Suma",category:"",supplier:"",description:$("i_description").value,tags:$("i_tags").value||inferTags($("i_description").value).join(", "),attachments:attachClean("i"),updatedAt:new Date().toISOString()};
+  const rec={type:"income",date:$("i_date").value,quantity:qty,unitAmount:ua,amount:ua*qty,source:$("i_source").value||"Otro",method:$("i_method").value||"Efectivo",person:$("i_person").value,status:$("i_status").value||"Pagado",ambito:ambitoFor($("i_source").value,$("i_ambito").value),category:"",supplier:"",description:$("i_description").value,tags:$("i_tags").value||inferTags($("i_description").value).join(", "),attachments:attachClean("i"),updatedAt:new Date().toISOString()};
   try{if(editingId){await setDoc(doc(db,"records",editingId),rec);toast("✓ Ingreso actualizado");}else{await addDoc(collection(db,"records"),rec);toast("✓ Ingreso guardado");}cancelEdit();}catch(e){toast("⚠ "+e.message);}
 };
 
@@ -720,7 +724,7 @@ window.saveExpense=async()=>{
   let person=$("e_person").value.trim(),supplier=$("e_supplier").value.trim();
   if(payee==="artesano")supplier="";else if(payee==="proveedor")person="";
   if(!person&&!supplier&&!PAYEE_FREE.includes(splitCat(cat)[0])&&!confirm("Falta a quién se le pagó (artesano o proveedor). ¿Guardar igual?"))return;
-  const rec={type:"expense",date:$("e_date").value,quantity:1,amount:amt,category:cat,supplier,method:$("e_method").value||"Efectivo",status:$("e_status").value||"Pagado",ambito:$("e_ambito").value||"Suma",source:"",person,description:$("e_description").value,tags:$("e_tags").value||inferTags($("e_description").value).join(", "),attachments:attachClean("e"),updatedAt:new Date().toISOString()};
+  const rec={type:"expense",date:$("e_date").value,quantity:1,amount:amt,category:cat,supplier,method:$("e_method").value||"Efectivo",status:$("e_status").value||"Pagado",ambito:ambitoFor(cat,$("e_ambito").value),source:"",person,description:$("e_description").value,tags:$("e_tags").value||inferTags($("e_description").value).join(", "),attachments:attachClean("e"),updatedAt:new Date().toISOString()};
   try{if(editingId){await setDoc(doc(db,"records",editingId),rec);toast("✓ Egreso actualizado");}else{await addDoc(collection(db,"records"),rec);toast("✓ Egreso guardado");}cancelEdit();}catch(e){toast("⚠ "+e.message);}
 };
 
@@ -768,7 +772,7 @@ window.cancelEdit=()=>{
   $("i_source").value=settings.incomeSources[0]||"";$("i_method").value="Efectivo";setStatus("i","Pagado");
   $("e_category").value=settings.expenseCats[0]||"";$("e_method").value="Efectivo";setStatus("e","Pagado");
   refreshCategorySelects();setPayee("");categoryChanged(); // quita las opciones "(anterior)" que dejó una edición
-  selectAmbito("i",settings.ambitos[0]||"");selectAmbito("e",settings.ambitos[0]||"");
+  selectAmbito("i","");selectAmbito("e","");refreshAmbito("i");refreshAmbito("e");
   pendingAttach.i=[];pendingAttach.e=[];renderThumbs("i");renderThumbs("e");
   $("incomeBtn").textContent="Agregar ingreso";$("expenseBtn").textContent="Agregar egreso";
   $("incomeCancel").style.display="none";$("expenseCancel").style.display="none";
@@ -792,7 +796,7 @@ window.render=()=>{
   // El filtro incluye también las categorías viejas que ya no están en la lista, para poder seguir consultándolas.
   const oldCats=[...new Set(records.filter(r=>r.type==="expense"&&r.category&&!settings.expenseCats.includes(r.category)).map(r=>r.category))].sort();
   fillSel("f_category",[...settings.expenseCats,...oldCats],true,true);
-  fillSel("f_ambito",settings.ambitos,true);
+  fillSel("f_ambito",ambitosFiltro(),true);
   $("personList").innerHTML=[...new Set(records.map(r=>r.person).filter(Boolean))].sort().map(x=>`<option value="${esc(x)}">`).join("");
   const rows=filteredRecords();
   const income=rows.filter(r=>r.type==="income").reduce((s,r)=>s+Number(r.amount||0),0);
