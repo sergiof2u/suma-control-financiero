@@ -398,7 +398,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:'DM Sans',sans-s
     </div>
   </div>
   <div class="card">
-    <p style="font-size:13px;color:var(--muted);line-height:1.6"><b>Control Financiero — Centro Cultural Suma</b><br>Versión 4.0 — Firebase + GitHub Pages<br>Login + comprobantes en Storage. Sincronización en tiempo real.</p>
+    <p style="font-size:13px;color:var(--muted);line-height:1.6"><b>Control Financiero — Suma</b><br>Versión 4.0 — Firebase + GitHub Pages<br>Login + comprobantes en Storage. Sincronización en tiempo real.</p>
   </div>
 </div>
 
@@ -451,7 +451,7 @@ function inferTags(t){
 }
 
 function toast(msg,ms=2500){const el=$("toast");el.textContent=msg;el.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove("show"),ms);}
-function setStatus(s,msg){$("statusDot").className="dot"+(s==="err"?" err":s==="warn"?" warn":"");$("statusText").textContent=msg;}
+function setConnStatus(s,msg){$("statusDot").className="dot"+(s==="err"?" err":s==="warn"?" warn":"");$("statusText").textContent=msg;}
 
 /* ===================== AUTENTICACIÓN ===================== */
 window.doLogin=async()=>{
@@ -485,12 +485,12 @@ onAuthStateChanged(auth,user=>{
 
 /* ===================== FIRESTORE ===================== */
 function initListeners(){
-  setStatus("warn","Conectando...");
+  setConnStatus("warn","Conectando...");
   onSnapshot(query(collection(db,"records"),orderBy("date","desc")),snap=>{
     records=snap.docs.map(d=>({id:d.id,...d.data()}));
-    setStatus("ok",`${records.length} registros • sincronizado`);
+    setConnStatus("ok",`${records.length} registros • sincronizado`);
     render();refreshPersonList();
-  },err=>setStatus("err","Sin conexión / permisos"));
+  },err=>setConnStatus("err","Sin conexión / permisos"));
   onSnapshot(doc(db,"config","settings"),snap=>{
     if(snap.exists()){const d=snap.data();settings.incomeSources=d.incomeSources||[...DEF_SOURCES];settings.expenseCats=d.expenseCats||[...DEF_CATS];settings.ambitos=d.ambitos||["Suma","Destilería","Familiar","Mixto"];}
     refreshCategorySelects();renderConfigCats();renderAmbitoPills();
