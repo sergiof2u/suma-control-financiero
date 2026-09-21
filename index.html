@@ -532,7 +532,7 @@ window.selectAmbito=(prefix,value)=>{
   $(`${prefix}_ambito_note`).textContent=FUERA_DE_CUENTAS.includes(value)?"Informativo: no entra a la contabilidad de SUMA. El dinero va directo al concesionario.":value?`Se guarda en ${value}. Lo define la categoría.`:"";
 };
 window.sourceChanged=()=>{refreshAmbito("i");if(FUERA_DE_CUENTAS.includes($("i_ambito").value))$("i_method").value="QR del concesionario";};
-window.refreshAmbito=prefix=>{const cat=prefix==="i"?$("i_source").value:$("e_category").value;selectAmbito(prefix,ambitoFor(cat,$(`${prefix}_ambito`).value));};
+window.refreshAmbito=prefix=>{const cat=prefix==="i"?$("i_source").value:$("e_category").value;if(!cat&&!editingId){selectAmbito(prefix,"");return;}selectAmbito(prefix,ambitoFor(cat,$(`${prefix}_ambito`).value));};
 // El filtro incluye los ámbitos de los registros viejos aunque ya no estén en la lista.
 const ambitosFiltro=()=>[...settings.ambitos,...[...new Set(records.map(r=>r.ambito).filter(Boolean))].filter(a=>!settings.ambitos.includes(a)).sort()];
 
@@ -717,6 +717,7 @@ window.saveIncome=async()=>{
   if(stillUploading("i")){toast("⏳ Espera a que terminen de subir las fotos");return;}
   const ua=Number(parseAmt($("i_amount").value)),qty=Number(parseAmt($("i_quantity").value)||1);
   if(!$("i_date").value||ua<=0){alert("Ingresa fecha y monto.");return;}
+  if(!$("i_source").value&&!editingId){alert("Elige la fuente del ingreso.");return;}
   const rec={type:"income",date:$("i_date").value,quantity:qty,unitAmount:ua,amount:ua*qty,source:$("i_source").value||"Otro",method:$("i_method").value||"Efectivo",person:$("i_person").value,status:$("i_status").value||"Pagado",ambito:ambitoFor($("i_source").value,$("i_ambito").value),category:"",supplier:"",description:$("i_description").value,tags:$("i_tags").value||inferTags($("i_description").value).join(", "),attachments:attachClean("i"),updatedAt:new Date().toISOString()};
   try{if(editingId){await setDoc(doc(db,"records",editingId),rec);toast("✓ Ingreso actualizado");}else{await addDoc(collection(db,"records"),rec);toast("✓ Ingreso guardado");}cancelEdit();}catch(e){toast("⚠ "+e.message);}
 };
@@ -725,6 +726,7 @@ window.saveExpense=async()=>{
   if(stillUploading("e")){toast("⏳ Espera a que terminen de subir las fotos");return;}
   const amt=Number(parseAmt($("e_amount").value));
   if(!$("e_date").value||amt<=0){alert("Ingresa fecha y monto.");return;}
+  if(!$("e_category").value&&!editingId){alert("Elige la categoría del egreso.");return;}
   const payee=$("e_payee").value,cat=$("e_category").value||"Otro";
   let person=$("e_person").value.trim(),supplier=$("e_supplier").value.trim();
   if(payee==="artesano")supplier="";else if(payee==="proveedor")person="";
@@ -775,7 +777,7 @@ window.cancelEdit=()=>{
   ["i_amount","i_person","i_description","i_tags","e_amount","e_supplier","e_person","e_description","e_tags"].forEach(k=>$(k).value="");
   $("i_date").value=today;$("e_date").value=today;$("i_quantity").value="1";
   $("i_source").value=settings.incomeSources[0]||"";$("i_method").value="Efectivo";setStatus("i","Pagado");
-  $("e_category").value=settings.expenseCats[0]||"";$("e_method").value="Efectivo";setStatus("e","Pagado");
+  $("e_category").value="";$("e_method").value="Efectivo";setStatus("e","Pagado");
   refreshCategorySelects();setPayee("");categoryChanged(); // quita las opciones "(anterior)" que dejó una edición
   selectAmbito("i","");selectAmbito("e","");refreshAmbito("i");refreshAmbito("e");
   pendingAttach.i=[];pendingAttach.e=[];renderThumbs("i");renderThumbs("e");
