@@ -1005,9 +1005,10 @@ window.importJson=async event=>{
       const parsed=JSON.parse(reader.result);
       const imported=Array.isArray(parsed)?parsed:(parsed.records||[]);
       if(!imported.length){alert("El archivo no contiene registros.");return;}
-      if(!confirm(`Importar ${imported.length} registros?\n\nLos que tengan el mismo ID se sobrescriben; el resto se agrega.`))return;
+      const delTaller=imported.filter(r=>r.linea).length;
+      if(!confirm(`Importar ${imported.length-delTaller} registros?\n\nLos que tengan el mismo ID se sobrescriben; el resto se agrega.`+(delTaller?`\n\n${delTaller} registros del taller del archivo no se importan: los registros del taller solo se escriben desde la app del taller.`:"")))return;
       let count=0;
-      for(const r of imported){const{id:rid,...data}=r;data.ambito=data.ambito||"Suma";const docId=rid||("imp-"+Date.now()+"-"+Math.random().toString(36).slice(2));await setDoc(doc(db,"records",docId),data);count++;}
+      for(const r of imported){if(r.linea)continue;const{id:rid,...data}=r;if(rid&&records.some(x=>x.id===rid&&x.linea))continue;data.ambito=data.ambito||"Suma";const docId=rid||("imp-"+Date.now()+"-"+Math.random().toString(36).slice(2));await setDoc(doc(db,"records",docId),data);count++;}
       toast(`✓ ${count} registros importados`);
     }catch(e){alert("Archivo inválido: "+e.message);}
   };
@@ -1022,11 +1023,14 @@ window.restoreBackup=async event=>{
       const parsed=JSON.parse(reader.result);
       const imported=Array.isArray(parsed)?parsed:(parsed.records||[]);
       if(!imported.length){alert("El archivo no contiene registros.");return;}
-      if(!confirm(`⚠ RESTAURAR BACKUP\n\nEsto borrará TODOS los registros actuales (${records.length}) y cargará ${imported.length} registros del archivo.\n\nNota: NO borra las imágenes de Storage. ¿Estás seguro?`))return;
+      // Los registros del taller (con linea) no se tocan: van unidos a su movimiento de material, y un backup viejo los descuadraría.
+      const propios=records.filter(r=>!r.linea),delTaller=records.length-propios.length;
+      const aCargar=imported.filter(r=>!r.linea&&!records.some(x=>x.id===r.id&&x.linea));
+      if(!confirm(`⚠ RESTAURAR BACKUP\n\nEsto borrará ${propios.length} registros actuales y cargará ${aCargar.length} registros del archivo.\n\nLos ${delTaller} registros del taller de joyería se conservan como están: no se borran ni se reemplazan con los del archivo.\n\nNota: NO borra las imágenes de Storage. ¿Estás seguro?`))return;
       toast("Borrando registros...",10000);
-      for(const r of records){await deleteDoc(doc(db,"records",r.id));}
+      for(const r of propios){await deleteDoc(doc(db,"records",r.id));}
       let count=0;
-      for(const r of imported){const{id:rid,...data}=r;data.ambito=data.ambito||"Suma";const docId=rid||("imp-"+Date.now()+"-"+Math.random().toString(36).slice(2));await setDoc(doc(db,"records",docId),data);count++;}
+      for(const r of aCargar){const{id:rid,...data}=r;data.ambito=data.ambito||"Suma";const docId=rid||("imp-"+Date.now()+"-"+Math.random().toString(36).slice(2));await setDoc(doc(db,"records",docId),data);count++;}
       toast(`✓ Backup restaurado — ${count} registros cargados`);
     }catch(e){toast("⚠ Error: "+e.message);}
   };
