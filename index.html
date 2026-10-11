@@ -768,7 +768,8 @@ window.editRecord=rid=>{
 
 window.deleteRecord=async rid=>{
   const r=records.find(x=>x.id===rid);
-  if(r&&r.linea&&!confirm("AVISO: este registro es del TALLER de joyeria (linea "+r.linea+").\nSi lo borras desde aqui, el movimiento de material queda huerfano.\n\n¿Borrar de todos modos?"))return;
+  // Un registro del taller va unido a su movimiento de material (compra, cobro de clase): se borra desde el taller, que borra las dos partes juntas.
+  if(r&&r.linea){alert("Este registro es del TALLER de joyeria (linea "+r.linea+").\n\nSe borra desde la app del taller:\nsergiof2u.github.io/suma-taller\n\nAlla se borra junto con su movimiento de material; borrarlo desde aqui dejaria el cajon descuadrado.");return;}
   if(!confirm("¿Eliminar este registro? Se borrarán también sus comprobantes. No se puede deshacer."))return;
   try{
     if(r&&Array.isArray(r.attachments))await deleteAttachmentsFromStorage(r.attachments);
