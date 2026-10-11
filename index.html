@@ -447,7 +447,11 @@ const groupItems=items=>{const order=[],by={};items.forEach(x=>{const k=splitCat
 function inferTags(t){
   const v=norm(t);
   const rules={urgente:["urgente","inmediato","hoy","vencido"],cliente:["cliente","comprador","empresa"],inventario:["inventario","insumo","material","compra","producto"],servicio:["servicio","asesoria","consultoria","clase","taller"],evento:["evento","feria","exposicion","stand"],transporte:["taxi","uber","envio","transporte","gasolina","domicilio"],impuesto:["impuesto","iva","dian","retencion","declaracion"],eventual:["eventual","ocasional","unico","especial"]};
-  return Object.entries(rules).filter(([,w])=>w.some(x=>v.includes(x))).map(([t])=>t);
+  // Por palabra, no por letras sueltas: "dian" no debe encontrarse en "Diana" ni "iva" en "activa".
+  // Las claves cortas piden la palabra exacta; las largas aceptan plural y derivados (material, materiales).
+  const pal=v.split(/[^a-z0-9ñ]+/).filter(Boolean);
+  const hay=x=>pal.some(p=>x.length<=4?p===x:p.startsWith(x));
+  return Object.entries(rules).filter(([,w])=>w.some(hay)).map(([t])=>t);
 }
 
 function toast(msg,ms=2500){const el=$("toast");el.textContent=msg;el.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove("show"),ms);}
